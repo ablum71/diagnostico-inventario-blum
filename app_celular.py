@@ -34,7 +34,7 @@ if check_password():
             st.subheader("B&A")
     with col_tit:
         st.title("Inventory Intelligence")
-        st.markdown("**Operational Excellence Consulting**")
+        st.markdown("**Consultoría en Excelencia Operacional**")
 
     st.divider()
 
@@ -98,17 +98,20 @@ if check_password():
                 return "monitoreo."
             df["Accion_Sugerida"] = df.apply(motor_acciones, axis=1)
 
-            # Resumen en pantalla móvil
+            # --- RESUMEN RÁPIDO PANTALLA ---
             inv_total, lib_total = df["Inv_Total"].sum(), df["Cap_Liberable"].sum()
-            st.subheader("📊 Resultados")
-            st.metric("Inventario Total", f"$ {inv_total:,.0f}")
-            st.metric("Cap. Liberable", f"$ {lib_total:,.0f}", delta=f"{(lib_total/inv_total)*100:.1f}%", delta_color="inverse")
+            ahorro_anual = lib_total * tasa_wacc
+            
+            st.subheader("📊 Indicadores Críticos")
+            k1, k2 = st.columns(2)
+            k1.metric("Inventario Total", f"$ {inv_total:,.0f}")
+            k2.metric("Cap. Liberable", f"$ {lib_total:,.0f}", delta=f"{(lib_total/inv_total)*100:.1f}%", delta_color="inverse")
 
-            # --- GENERADOR EXCEL (3 SOLAPAS) ---
+            # --- GENERADOR EXCEL PROFESIONAL ---
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 workbook = writer.book
-                # FORMATOS
+                # Formatos
                 f_card = workbook.add_format({'bold': True, 'bg_color': '#1E293B', 'font_color': 'white', 'align': 'center', 'border': 1})
                 f_header = workbook.add_format({'bold': True, 'bg_color': '#0F172A', 'font_color': 'white', 'border': 1, 'align': 'center'})
                 f_label = workbook.add_format({'bold': True, 'font_color': '#475569'})
@@ -125,34 +128,60 @@ if check_password():
                 ws_d = workbook.add_worksheet("DASHBOARD")
                 ws_d.hide_gridlines(2)
                 ws_d.set_column('B:E', 28)
+
+                # IMPACTO FINANCIERO
                 ws_d.merge_range('B2:C2', 'IMPACTO FINANCIERO', f_card)
                 ws_d.write('B3', 'Inventario Total', f_label); ws_d.write('C3', inv_total, f_money)
+                ws_d.write_comment('C3', 'Σ(Stock Actual * Costo Unitario)')
                 ws_d.write('B4', 'Capital Liberable', f_label); ws_d.write('C4', lib_total, f_money)
+                ws_d.write_comment('C4', 'Excedente: Σ(Stock Actual - Stock Objetivo) * Costo')
                 ws_d.write('B5', 'Capital en Riesgo', f_label); ws_d.write('C5', df["Cap_Riesgo"].sum(), f_money)
+                ws_d.write_comment('C5', 'Faltante: Σ(Stock Objetivo - Stock Actual) * Costo')
                 ws_d.write('B6', '% Cap. Liberable', f_label); ws_d.write('C6', lib_total/inv_total if inv_total > 0 else 0, f_pct)
-                
-                ws_d.merge_range('D2:E2', 'RENTABILIDAD Y RETORNO', f_card)
-                ws_d.write('D3', 'Costo WACC', f_label); ws_d.write('E3', tasa_wacc, f_pct)
-                ws_d.write('D4', 'Ahorro Anual', f_label); ws_d.write('E4', lib_total * tasa_wacc, f_money)
-                ws_d.write('D5', 'Flujo 1er Año', f_label); ws_d.write('E5', lib_total + (lib_total * tasa_wacc) - honorarios, f_money)
-                ws_d.write('D6', 'ROI (%)', f_label); ws_d.write('E6', ((lib_total * tasa_wacc)/honorarios if honorarios > 0 else 0), f_pct)
+                ws_d.write_comment('C6', 'Capital Liberable / Inventario Total')
+                ws_d.write('B7', '% Cap. en Riesgo', f_label); ws_d.write('C7', df["Cap_Riesgo"].sum()/inv_total if inv_total > 0 else 0, f_pct)
+                ws_d.write_comment('C7', 'Capital en Riesgo / Inventario Total')
 
-                # Matriz ABC/XYZ en Dashboard
-                ws_d.merge_range('B8:E8', 'MATRIZ DE DISTRIBUCIÓN: VALOR DE INVENTARIO ($)', f_card)
-                ws_d.write('B9', 'Categoría', f_header); ws_d.write('C9', 'X (Estable)', f_header)
-                ws_d.write('D9', 'Y (Variable)', f_header); ws_d.write('E9', 'Z (Errática)', f_header)
+                # RENTABILIDAD Y RETORNO
+                ws_d.merge_range('D2:E2', 'RENTABILIDAD Y RETORNO', f_card)
+                ws_d.write('D3', 'Costo WACC Aplicado', f_label); ws_d.write('E3', tasa_wacc, f_pct)
+                ws_d.write_comment('E3', 'Tasa de costo de oportunidad definida por el usuario.')
+                ws_d.write('D4', 'Ahorro Anual (Hold. Cost)', f_label); ws_d.write('E4', ahorro_anual, f_money)
+                ws_d.write_comment('E4', 'Ahorro financiero: Capital Liberable * Tasa WACC')
+                ws_d.write('D5', 'Flujo 1er Año (Neto)', f_label); ws_d.write('E5', lib_total + ahorro_anual - honorarios, f_money)
+                ws_d.write_comment('E5', 'Cap. Liberable + Ahorro Anual - Inversión Proyecto')
+                ws_d.write('D6', 'Inversión Proyecto', f_label); ws_d.write('E6', honorarios, f_money)
+                ws_d.write('D7', 'ROI (%)', f_label); ws_d.write('E7', (ahorro_anual/honorarios if honorarios > 0 else 0), f_pct)
+                ws_d.write_comment('E7', 'Ahorro Anual / Inversión Proyecto')
+                ws_d.write('D8', 'Payback (Meses)', f_label); ws_d.write('E8', (honorarios/(ahorro_anual/12) if ahorro_anual > 0 else 0), f_std)
+                ws_d.write_comment('E8', 'Inversión / (Ahorro Anual / 12)')
+
+                # EFICIENCIA OPERATIVA
+                ws_d.merge_range('B10:E10', 'INDICADORES DE EFICIENCIA OPERATIVA', f_card)
+                ws_d.write('B11', 'Rotación Promedio', f_label); ws_d.write('C11', df["Rotacion_Anual"].mean(skipna=True), f_std)
+                ws_d.write_comment('C11', 'Consumo Anual / Stock Actual Promedio')
+                ws_d.write('B12', 'DOH Promedio (Días)', f_label); ws_d.write('C12', df["DOH"].mean(skipna=True), f_std)
+                ws_d.write_comment('C12', 'Stock Actual / Consumo Diario Promedio')
+                ws_d.write('D11', 'Cap. Obsoleto Real', f_label); ws_d.write('E11', df["Cap_Obsoleto_Real"].sum(), f_money)
+                ws_d.write_comment('E11', 'Valor de ítems con Consumo CERO.')
+                ws_d.write('D12', 'Cap. Obsoleto Estructural', f_label); ws_d.write('E12', df["Cap_Obsoleto_Est"].sum(), f_money)
+                ws_d.write_comment('E12', 'Valor de ítems con cobertura > 365 días.')
+
+                # MATRIZ ABC/XYZ
+                ws_d.merge_range('B14:E14', 'MATRIZ DE DISTRIBUCIÓN: VALOR DE INVENTARIO ($)', f_card)
+                ws_d.write('B15', 'Categoría', f_header); ws_d.write('C15', 'X (Estable)', f_header)
+                ws_d.write('D15', 'Y (Variable)', f_header); ws_d.write('E15', 'Z (Errática)', f_header)
                 matriz = df.pivot_table(index='ABC', columns='XYZ', values='Inv_Total', aggfunc='sum', fill_value=0)
                 for i, abc in enumerate(['A', 'B', 'C']):
-                    ws_d.write(10+i, 1, f"ABC: {abc}", f_header)
+                    ws_d.write(16+i, 1, f"ABC: {abc}", f_header)
                     for j, xyz in enumerate(['X', 'Y', 'Z']):
                         val = matriz.loc[abc, xyz] if abc in matriz.index and xyz in matriz.columns else 0
-                        ws_d.write(10+i, 2+j, val, f_money)
+                        ws_d.write(16+i, 2+j, val, f_money)
 
-                # 2. SOLAPA GUIA DE ACCION
+                # 2. SOLAPA GUIA DE ACCION (Misma estructura previa)
                 ws_g = workbook.add_worksheet("GUIA_DE_ACCION")
                 ws_g.set_column('A:A', 15); ws_g.set_column('B:D', 45)
-                headers_g = ["CATEGORÍA", "SIGNIFICADO", "ESTADO: EXCESO", "ESTADO: RIESGO"]
-                for col, h in enumerate(headers_g): ws_g.write(0, col, h, f_header)
+                for col, h in enumerate(["CATEGORÍA", "SIGNIFICADO", "ESTADO: EXCESO", "ESTADO: RIESGO"]): ws_g.write(0, col, h, f_header)
                 guia_data = [
                     ("AX", "Alta inversión, alta rotación.", "frenar compras inmediatamente. prioridad #1.", "emitir orden de compra hoy. riesgo pérdida."),
                     ("AY", "Alta rotación, demanda estable.", "ajuste progresivo. evaluar estacionalidad.", "revisar stock de seguridad. demanda variable."),
