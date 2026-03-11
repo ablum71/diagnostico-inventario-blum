@@ -34,7 +34,7 @@ if check_password():
             st.subheader("B&A")
     with col_tit:
         st.title("Inventory Intelligence")
-        st.markdown("**Consultoría en Excelencia Operacional**")
+        st.markdown("**Operational Excellence Consulting**")
 
     st.divider()
 
@@ -77,7 +77,6 @@ if check_password():
             df["Cap_Obsoleto_Real"] = np.where(df["Consumo_Total"] == 0, df["Inv_Total"], 0)
             df["Cap_Obsoleto_Est"] = np.where(df["DOH"] > 365, df["Inv_Total"], 0)
 
-            # Acción Sugerida
             def motor_acciones(row):
                 comb, es_exceso = row["Categorizacion_Final"], row["Cap_Liberable"] > 0
                 if es_exceso:
@@ -99,20 +98,17 @@ if check_password():
                 return "monitoreo."
             df["Accion_Sugerida"] = df.apply(motor_acciones, axis=1)
 
-            # --- RESUMEN EN PANTALLA ---
+            # Resumen en pantalla móvil
             inv_total, lib_total = df["Inv_Total"].sum(), df["Cap_Liberable"].sum()
-            ahorro_anual = lib_total * tasa_wacc
-            
-            st.subheader("📊 Métricas Clave")
-            k1, k2 = st.columns(2)
-            k1.metric("Inventario Total", f"$ {inv_total:,.0f}")
-            k2.metric("Cap. Liberable", f"$ {lib_total:,.0f}", delta=f"{(lib_total/inv_total)*100:.1f}%", delta_color="inverse")
+            st.subheader("📊 Resultados")
+            st.metric("Inventario Total", f"$ {inv_total:,.0f}")
+            st.metric("Cap. Liberable", f"$ {lib_total:,.0f}", delta=f"{(lib_total/inv_total)*100:.1f}%", delta_color="inverse")
 
-            # --- GENERADOR EXCEL PROFESIONAL ---
+            # --- GENERADOR EXCEL (3 SOLAPAS) ---
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 workbook = writer.book
-                # Formatos (Exactamente iguales a los de ayer)
+                # FORMATOS
                 f_card = workbook.add_format({'bold': True, 'bg_color': '#1E293B', 'font_color': 'white', 'align': 'center', 'border': 1})
                 f_header = workbook.add_format({'bold': True, 'bg_color': '#0F172A', 'font_color': 'white', 'border': 1, 'align': 'center'})
                 f_label = workbook.add_format({'bold': True, 'font_color': '#475569'})
@@ -120,14 +116,12 @@ if check_password():
                 f_pct = workbook.add_format({'num_format': '0.0%', 'bold': True})
                 f_std = workbook.add_format({'num_format': '#,##0.0', 'bold': True})
                 f_wrap = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1, 'font_size': 10})
-
-                # Formatos Base
                 f_ba_money = workbook.add_format({'num_format': '$#,##0', 'border': 1})
                 f_ba_std = workbook.add_format({'num_format': '#,##0.0', 'border': 1})
                 f_ba_pct = workbook.add_format({'num_format': '0.0%', 'border': 1})
                 f_ba_txt = workbook.add_format({'border': 1})
 
-                # Hoja 1: DASHBOARD
+                # 1. SOLAPA DASHBOARD
                 ws_d = workbook.add_worksheet("DASHBOARD")
                 ws_d.hide_gridlines(2)
                 ws_d.set_column('B:E', 28)
@@ -139,11 +133,40 @@ if check_password():
                 
                 ws_d.merge_range('D2:E2', 'RENTABILIDAD Y RETORNO', f_card)
                 ws_d.write('D3', 'Costo WACC', f_label); ws_d.write('E3', tasa_wacc, f_pct)
-                ws_d.write('D4', 'Ahorro Anual', f_label); ws_d.write('E4', ahorro_anual, f_money)
-                ws_d.write('D5', 'Flujo 1er Año', f_label); ws_d.write('E5', lib_total + ahorro_anual - honorarios, f_money)
-                ws_d.write('D6', 'ROI (%)', f_label); ws_d.write('E6', (ahorro_anual/honorarios if honorarios > 0 else 0), f_pct)
+                ws_d.write('D4', 'Ahorro Anual', f_label); ws_d.write('E4', lib_total * tasa_wacc, f_money)
+                ws_d.write('D5', 'Flujo 1er Año', f_label); ws_d.write('E5', lib_total + (lib_total * tasa_wacc) - honorarios, f_money)
+                ws_d.write('D6', 'ROI (%)', f_label); ws_d.write('E6', ((lib_total * tasa_wacc)/honorarios if honorarios > 0 else 0), f_pct)
 
-                # Hoja 2: BASE_ANALISIS
+                # Matriz ABC/XYZ en Dashboard
+                ws_d.merge_range('B8:E8', 'MATRIZ DE DISTRIBUCIÓN: VALOR DE INVENTARIO ($)', f_card)
+                ws_d.write('B9', 'Categoría', f_header); ws_d.write('C9', 'X (Estable)', f_header)
+                ws_d.write('D9', 'Y (Variable)', f_header); ws_d.write('E9', 'Z (Errática)', f_header)
+                matriz = df.pivot_table(index='ABC', columns='XYZ', values='Inv_Total', aggfunc='sum', fill_value=0)
+                for i, abc in enumerate(['A', 'B', 'C']):
+                    ws_d.write(10+i, 1, f"ABC: {abc}", f_header)
+                    for j, xyz in enumerate(['X', 'Y', 'Z']):
+                        val = matriz.loc[abc, xyz] if abc in matriz.index and xyz in matriz.columns else 0
+                        ws_d.write(10+i, 2+j, val, f_money)
+
+                # 2. SOLAPA GUIA DE ACCION
+                ws_g = workbook.add_worksheet("GUIA_DE_ACCION")
+                ws_g.set_column('A:A', 15); ws_g.set_column('B:D', 45)
+                headers_g = ["CATEGORÍA", "SIGNIFICADO", "ESTADO: EXCESO", "ESTADO: RIESGO"]
+                for col, h in enumerate(headers_g): ws_g.write(0, col, h, f_header)
+                guia_data = [
+                    ("AX", "Alta inversión, alta rotación.", "frenar compras inmediatamente. prioridad #1.", "emitir orden de compra hoy. riesgo pérdida."),
+                    ("AY", "Alta rotación, demanda estable.", "ajuste progresivo. evaluar estacionalidad.", "revisar stock de seguridad. demanda variable."),
+                    ("AZ", "Alta inversión, demanda errática.", "riesgo obsolescencia. evaluar promociones.", "evaluar si conviene stockear o bajo pedido."),
+                    ("BX / BY", "Rotación media, demanda estable.", "reducir lote de compra o frecuencia.", "ajustar parámetros de reposición en sistema."),
+                    ("BZ", "Rotación media, demanda errática.", "analizar si exceso justifica costo oportunidad.", "revisar si el ítem sigue activo en catálogo."),
+                    ("CX / CY", "Baja inversión, rotación estable.", "bajo impacto financiero. agotar naturalmente.", "reposición estándar. sin gestión expedita."),
+                    ("CZ", "Baja inversión, demanda errática.", "evaluar eliminación. capital muerto.", "no reponer sin pedido firme del cliente.")
+                ]
+                for i, row in enumerate(guia_data, 1):
+                    ws_g.write(i, 0, row[0], f_header); ws_g.write(i, 1, row[1], f_wrap)
+                    ws_g.write(i, 2, row[2], f_wrap); ws_g.write(i, 3, row[3], f_wrap)
+
+                # 3. SOLAPA BASE ANALISIS
                 df.to_excel(writer, sheet_name="Base_Analisis", index=False)
                 ws_b = writer.sheets["Base_Analisis"]
                 for col_num, col_name in enumerate(df.columns):
@@ -161,7 +184,7 @@ if check_password():
 
             st.divider()
             st.download_button(
-                label="📥 DESCARGAR REPORTE TÉCNICO COMPLETO",
+                label="📥 DESCARGAR REPORTE PROFESIONAL COMPLETO",
                 data=output.getvalue(),
                 file_name=f"{nombre_reporte}.xlsx",
                 mime="application/vnd.ms-excel",
