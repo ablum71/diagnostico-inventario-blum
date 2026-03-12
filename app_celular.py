@@ -40,13 +40,19 @@ if check_password():
 
     # --- 3. PANEL DE CONTROL ---
     with st.expander("⚙️ Configuración del Análisis"):
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             empresa_activa = st.text_input("Empresa", "Cliente Demo")
             tasa_wacc = st.number_input("Tasa WACC (%)", value=30.0) / 100
         with c2:
             nombre_reporte = st.text_input("Nombre Reporte", f"Reporte_{empresa_activa}")
             honorarios = st.number_input("Inversión Proyecto ($)", value=1000000.0)
+        with c3:
+            st.markdown("**Meses de Stock Objetivo (Lead Time)**")
+            lt_a = st.number_input("Categoría A", value=2.0)
+            lt_b = st.number_input("Categoría B", value=3.0)
+            lt_c = st.number_input("Categoría C", value=4.0)
+            lt_param_dict = {"A": lt_a, "B": lt_b, "C": lt_c}
 
     archivo = st.file_uploader("📂 Subir Excel de Inventario", type=["xlsx", "xls"])
 
@@ -68,8 +74,17 @@ if check_password():
             df["XYZ"] = df["CV"].apply(lambda cv: "X" if pd.isna(cv) or cv <= 0.5 else ("Y" if cv <= 1 else "Z"))
             df["Categorizacion_Final"] = df["ABC"].astype(str) + df["XYZ"].astype(str)
 
-            cob_dict = {"A": 2, "B": 3, "C": 4}
-            df["Stock_Objetivo"] = df["Promedio_Mensual"] * df["ABC"].map(cob_dict)
+            # --- LÓGICA DE LEAD TIME (RELLENO DE DATOS FALTANTES) ---
+            if "Lead_Time" not in df.columns:
+                df["Lead_Time"] = np.nan
+            
+            df["Lead_Time"] = df.apply(
+                lambda r: lt_param_dict[r["ABC"]] if pd.isna(r["Lead_Time"]) or r["Lead_Time"] <= 0 else r["Lead_Time"], 
+                axis=1
+            )
+
+            # --- CÁLCULOS SOBRE STOCK OBJETIVO ---
+            df["Stock_Objetivo"] = df["Promedio_Mensual"] * df["Lead_Time"]
             df["Cap_Liberable"] = (df["Stock_Actual"] - df["Stock_Objetivo"]).clip(lower=0) * df["Costo_Unitario"]
             df["Cap_Riesgo"] = (df["Stock_Objetivo"] - df["Stock_Actual"]).clip(lower=0) * df["Costo_Unitario"]
             df["Rotacion_Anual"] = df["Consumo_Total"] / df["Stock_Actual"].replace(0, np.nan)
@@ -98,7 +113,7 @@ if check_password():
                 return "monitoreo."
             df["Accion_Sugerida"] = df.apply(motor_acciones, axis=1)
 
-            # --- RESUMEN RÁPIDO PANTALLA ---
+            # --- RESUMEN PANTALLA ---
             inv_total, lib_total = df["Inv_Total"].sum(), df["Cap_Liberable"].sum()
             ahorro_anual = lib_total * tasa_wacc
             
@@ -178,7 +193,7 @@ if check_password():
                         val = matriz.loc[abc, xyz] if abc in matriz.index and xyz in matriz.columns else 0
                         ws_d.write(16+i, 2+j, val, f_money)
 
-                # 2. SOLAPA GUIA DE ACCION (Misma estructura previa)
+                # 2. SOLAPA GUIA DE ACCION
                 ws_g = workbook.add_worksheet("GUIA_DE_ACCION")
                 ws_g.set_column('A:A', 15); ws_g.set_column('B:D', 45)
                 for col, h in enumerate(["CATEGORÍA", "SIGNIFICADO", "ESTADO: EXCESO", "ESTADO: RIESGO"]): ws_g.write(0, col, h, f_header)
@@ -202,7 +217,7 @@ if check_password():
                     ws_b.write(0, col_num, col_name, f_header)
                     if any(x in col_name for x in ["Costo", "Inv_Total", "Valor_Consumo", "Cap_Liberable", "Cap_Riesgo", "Cap_Obsoleto"]):
                         ws_b.set_column(col_num, col_num, 18, f_ba_money)
-                    elif any(x in col_name for x in ["Promedio", "CV", "Rotacion", "DOH", "Stock_Actual", "Stock_Objetivo"]):
+                    elif any(x in col_name for x in ["Promedio", "CV", "Rotacion", "DOH", "Stock_Actual", "Stock_Objetivo", "Lead_Time"]):
                         ws_b.set_column(col_num, col_num, 15, f_ba_std)
                     elif "%" in col_name:
                         ws_b.set_column(col_num, col_num, 12, f_ba_pct)
